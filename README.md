@@ -58,3 +58,9 @@ Then open http://localhost:8000.
 ### Adding a shape
 
 Add an entry to `SHAPES` in `strokes.js`: a polyline in unit coordinates (centre at 0,0, half-width about 1, y down), with `points[0]` as the start and `closed` saying whether it's a loop. Then pair it with another shape in `LEVELS`. Scoring constants live in `TUNE`.
+
+## TODO
+
+- [ ] **Level editor**: create and share levels in the browser instead of editing `strokes.js`
+  - [ ] **Mirrored pairs**: both hands draw the same shape as mirror images of each other (`mirrorLeft` / `mirrorRight` already exist in `LEVELS`; the editor needs to expose them)
+  - [ ] **Split shapes**: the left hand draws the top half of a figure and the right hand draws the bottom half, and the two halves join into one picture on the result screen
