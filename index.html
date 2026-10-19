@@ -1,0 +1,691 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#101225">
+<title>Circle Left, Square Right</title>
+<style>
+  :root { --fg: #eef0ff; --dim: #8288aa; --line: #32375c; --bg: #101225; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; background: var(--bg); color: var(--fg); overflow: hidden;
+    font: 15px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", sans-serif; }
+  #intro { position: fixed; inset: 0; display: flex; overflow-y: auto;
+    padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(16px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left)); }
+  .card { width: min(480px, 100%); margin: auto; }
+  h1 { font-size: 30px; font-weight: 700; letter-spacing: .01em; line-height: 1.25; }
+  .sub { color: var(--dim); margin: 4px 0 24px; }
+  svg.fig { display: block; width: 100%; height: auto; margin-bottom: 24px; }
+  ol { list-style: none; counter-reset: s; margin-bottom: 30px; }
+  ol li { counter-increment: s; position: relative; padding-left: 26px; margin: 6px 0; color: #c4c8e4; }
+  ol li::before { content: counter(s); position: absolute; left: 0; color: var(--dim); font-variant-numeric: tabular-nums; }
+  kbd { font: inherit; color: var(--fg); border-bottom: 1px solid var(--line); padding: 0 2px; }
+  .row { display: flex; gap: 12px; flex-wrap: wrap; }
+  button { touch-action: manipulation; -webkit-tap-highlight-color: transparent; font: inherit; color: var(--fg); background: none;
+    border: 1px solid #454b78; padding: 8px 18px; border-radius: 999px; cursor: pointer; transition: border-color .15s, background .15s; }
+  button:hover { border-color: var(--fg); }
+  button.primary { background: #4fb6ff; color: #071426; border-color: #4fb6ff; }
+  button.primary:hover { background: #79c8ff; }
+  #info, #status { margin-top: 18px; color: var(--dim); font-size: 13px; min-height: 1.6em; }
+  #info + #status { margin-top: 4px; }
+  /* Posture hint: index finger up vs. pointing at the camera */
+  .pose { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 24px; }
+  .pose > div { display: grid; grid-template-columns: auto 1fr; column-gap: 12px; align-items: center;
+    padding: 10px 12px; border-radius: 12px; background: #181b36; }
+  .pose .ico { grid-row: span 2; color: var(--fg); }
+  .pose b { font-size: 14px; line-height: 1.3; }
+  .pose b::before { margin-right: 5px; }
+  .pose .ok b::before { content: "✓"; color: #5be3a4; }
+  .pose .bad b::before { content: "✕"; color: #ff7b7b; }
+  .pose small { font-size: 12px; line-height: 1.45; color: var(--dim); }
+  .pose .bad { opacity: .85; }
+  /* Landscape phones: two columns */
+  @media (max-height: 560px) and (orientation: landscape) {
+    .card { width: min(880px, 100%); display: grid; grid-template-columns: 1fr 1fr; column-gap: 32px; align-items: center; }
+    h1 { font-size: 24px; } .sub { margin-bottom: 10px; font-size: 13px; }
+    svg.fig { margin-bottom: 10px; max-height: 120px; }
+    .pose { margin-bottom: 0; }
+    ol { margin-bottom: 14px; font-size: 13px; line-height: 1.5; } ol li { margin: 3px 0; }
+    #info { margin-top: 10px; }
+  }
+  /* Touch devices: no keyboard help or mouse trial; ask to rotate when held upright */
+  body:not(.touch) #btnTouch, body:not(.touch) li.tch, body.coarse #btnMouse, body.coarse li.keys { display: none; }
+  #rotate { position: fixed; inset: 0; z-index: 10; display: none; flex-direction: column; gap: 16px; align-items: center; justify-content: center;
+    background: var(--bg); color: var(--fg); font-size: 17px; text-align: center; padding: 24px; }
+  #rotate .phone { animation: turn 2.4s ease-in-out infinite; transform-origin: 36px 36px; }
+  @keyframes turn { 0%, 25% { transform: rotate(0); } 55%, 100% { transform: rotate(-90deg); } }
+  @media (orientation: portrait) { body.coarse #rotate { display: flex; } }
+  /* In-game touch toolbar, stacked on the right edge: the top of a landscape phone holds the level and shape labels */
+  #toolbar { position: fixed; z-index: 5; display: none; flex-direction: column; gap: 10px;
+    top: 50%; transform: translateY(-50%); right: max(10px, env(safe-area-inset-right)); }
+  body.live.coarse #toolbar { display: flex; }
+  #toolbar button { width: 40px; height: 40px; padding: 0; font-size: 17px; line-height: 1; background: #101225cc; }
+  canvas#stage { position: fixed; inset: 0; width: 100%; height: 100%; display: none; touch-action: none; }
+  body.live canvas#stage { display: block; cursor: none; }
+  body.live #intro { display: none; }
+  video { display: none; }
+</style>
+</head>
+<body>
+
+<svg width="0" height="0" style="position: absolute" aria-hidden="true">
+  <defs>
+    <!-- Back of a right hand: index finger up, other fingers curled, thumb tucked across. Fingertip at (16.75, 2) -->
+    <symbol id="hand-up" viewBox="0 0 48 66">
+      <g stroke="#101225" stroke-width="2.2" stroke-linejoin="round" fill="currentColor">
+        <rect x="11" y="2" width="11.5" height="36" rx="5.75"/>
+        <rect x="21" y="22" width="10.5" height="14" rx="5.25"/>
+        <rect x="29.5" y="24.5" width="9.5" height="13" rx="4.75"/>
+        <rect x="36.5" y="28" width="8" height="12" rx="4"/>
+        <path d="M8 36 Q8 30 14 30 H38 Q45 30 45 38 V50 Q45 63 31 63 H20 Q8 63 8 51 Z"/>
+        <rect x="2" y="38" width="22" height="10.5" rx="5.25" transform="rotate(-28 13 43)"/>
+      </g>
+    </symbol>
+    <symbol id="webcam" viewBox="0 0 40 40">
+      <g fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+        <rect x="4" y="6" width="32" height="24" rx="7"/>
+        <circle cx="20" cy="18" r="6"/>
+        <path d="M14 36 H26 M20 30 V36"/>
+      </g>
+    </symbol>
+  </defs>
+</svg>
+
+<div id="intro">
+  <div class="card">
+    <div>
+      <h1>Circle Left, Square Right</h1>
+      <p class="sub">Your left hand draws a circle while your right hand draws a square. Start together, finish together.</p>
+
+      <svg class="fig" viewBox="0 0 460 150" fill="none" stroke-width="6" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="120" cy="62" r="46" stroke="#4fb6ff" stroke-width="3" stroke-dasharray="1 9" opacity=".7"/>
+        <path d="M120 16 A46 46 0 1 1 74 62" stroke="#4fb6ff"/>
+        <circle cx="120" cy="16" r="8" fill="#4fb6ff" stroke="none"/>
+        <rect x="294" y="16" width="92" height="92" stroke="#ff5c8a" stroke-width="3" stroke-dasharray="1 9" opacity=".7"/>
+        <path d="M294 16 H386 V108 H294" stroke="#ff5c8a"/>
+        <circle cx="294" cy="16" r="8" fill="#ff5c8a" stroke="none"/>
+        <!-- A raised index finger at each pen tip; the left one is mirrored -->
+        <g transform="translate(74 62) scale(-1 1)" style="color: #eef0ff"><use href="#hand-up" x="-10.5" y="-1.3" width="30" height="41.25"/></g>
+        <g transform="translate(294 108)" style="color: #eef0ff"><use href="#hand-up" x="-10.5" y="-1.3" width="30" height="41.25"/></g>
+      </svg>
+
+      <div class="pose">
+        <div class="ok">
+          <svg class="ico" width="30" height="41" viewBox="0 0 48 66"><use href="#hand-up"/></svg>
+          <b>Index finger up</b><small>Raise it like you're asking a question, tip toward the ceiling. Draw with your wrist and arm.</small>
+        </div>
+        <div class="bad">
+          <svg class="ico" width="64" height="35" viewBox="0 0 84 46">
+            <use href="#webcam" x="0" y="8" width="30" height="30" style="color: #8288aa"/>
+            <g transform="translate(36 34) rotate(-90)"><use href="#hand-up" width="31.2" height="42.9"/></g>
+          </svg>
+          <b>Don't point at the camera</b><small>A fingertip aimed at the lens gets tracked back at the knuckle.</small>
+        </div>
+      </div>
+    </div>
+
+    <div>
+      <ol>
+        <li class="cam">Camera mode: raise both hands into view, index fingers up. The view is mirrored, and your index fingertips are the pens.</li>
+        <li class="tch">Touch mode: draw on the screen with two fingers, one on each half.</li>
+        <li>Hold both pens on the start dots until the ring fills. Closed shapes can go either way round.</li>
+        <li>A stroke is done when it gets back to its end point. Score = each hand's shape (30% each) + sync (40%).</li>
+        <li class="keys"><kbd>←</kbd>/<kbd>→</kbd> shapes · <kbd>R</kbd> restart · <kbd>+</kbd>/<kbd>−</kbd> size · <kbd>V</kbd> camera view · <kbd>[</kbd>/<kbd>]</kbd> <kbd>↑</kbd>/<kbd>↓</kbd> framing · <kbd>D</kbd> debug · <kbd>Esc</kbd> quit</li>
+      </ol>
+
+      <div class="row">
+        <button id="btnStart" class="primary">Start with camera</button>
+        <button id="btnTouch">Two-finger touch</button>
+        <button id="btnMouse">Try with mouse</button>
+      </div>
+      <p id="info"></p>
+      <p id="status">Loading hand model…</p>
+    </div>
+  </div>
+</div>
+
+<div id="rotate">
+  <svg width="72" height="72" viewBox="0 0 72 72" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+    <g class="phone"><rect x="23" y="11" width="26" height="50" rx="6"/><path d="M33 55 H39"/></g>
+  </svg>
+  Turn your phone sideways
+</div>
+<div id="toolbar">
+  <button data-act="prev" aria-label="Previous level">◀</button>
+  <button data-act="next" aria-label="Next level">▶</button>
+  <button data-act="reset" aria-label="Restart">↻</button>
+  <button data-act="exit" aria-label="Quit">✕</button>
+</div>
+
+<canvas id="stage"></canvas>
+<video id="video" playsinline muted></video>
+
+<script type="module">
+import { PointEuro, startCamera, MediaPipeHands } from "./hands.js";
+import { SHAPES, LEVELS, TUNE, Stroke, shapeScore, syncScore, totalScore, rank } from "./strokes.js";
+import { TIP, TipTrack, assignHands } from "./tips.js";
+
+const $ = id => document.getElementById(id);
+const video = $("video"), canvas = $("stage"), ctx = canvas.getContext("2d"), statusEl = $("status");
+const TAU = Math.PI * 2, FONT = "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
+const SIDES = ["L", "R"], COLOR = { L: "#4fb6ff", R: "#ff5c8a" }, HAND = { L: "Left", R: "Right" };
+const BG = "#101225", INK = "#eef0ff", DIM = "#8288aa";
+const cap = s => s[0].toUpperCase() + s.slice(1);
+
+// armMs: how long both pens must rest on the start dots; lostMs: a hand missing this long mid-round voids it;
+// waitOtherMs: after one hand finishes, how long to wait for the other
+const GAME = { armMs: 700, lostMs: 1500, timeoutMs: 30000, waitOtherMs: 5000 };
+
+let W = innerWidth, Hh = innerHeight, dpr = devicePixelRatio || 1;
+let live = false, mouseMode = false, touchMode = false, debug = false, starting = false;
+const camMode = () => !mouseMode && !touchMode;   // camera mode (the others: mouse trial, two-finger touch)
+// Device classes: touch = multi-touch (offer touch mode); coarse = mostly finger input (phones / tablets: hide keyboard help, show the toolbar)
+document.body.classList.toggle("touch", navigator.maxTouchPoints > 1);
+const coarse = matchMedia("(pointer: coarse)").matches;
+document.body.classList.toggle("coarse", coarse);
+
+const STORE = "circle-left-square-right.v1";
+let cfg = { level: 0, scale: 1, video: true, zoom: 1.15, top: 0.02, best: {} };
+try { cfg = { ...cfg, ...JSON.parse(localStorage.getItem(STORE)) }; } catch {}
+cfg.level = ((cfg.level | 0) % LEVELS.length + LEVELS.length) % LEVELS.length;
+TIP.checks = false;   // use MediaPipe's index tip as is (the swap / collapse / jump checks in tips.js stay available)
+const saveCfg = () => { try { localStorage.setItem(STORE, JSON.stringify(cfg)); } catch {} };
+const levelKey = lv => `${lv.left}-${lv.right}`;
+
+/* ---------------------------------------------------------------
+ * Layout: one drawing area per hand. Shapes live in unit coordinates; `area` places them on screen.
+ * ------------------------------------------------------------- */
+const area = { L: null, R: null };
+function layout() {
+  // Keep a middle column for the progress bars / result card: 230 px on large screens, down to 170 px on a landscape phone (~800 wide)
+  const mid = Math.max(170, Math.min(230, W * 0.22));
+  const size = Math.min(W * 0.15, Hh * 0.25, (W * 0.48 - mid) / 2.1) * cfg.scale, cy = Hh * 0.52;
+  area.L = { cx: W * 0.26, cy, size };
+  area.R = { cx: W * 0.74, cy, size };
+}
+const toUnit = (s, [x, y]) => { const a = area[s]; return [(x - a.cx) / a.size, (y - a.cy) / a.size]; };
+const toPx = (s, [x, y]) => { const a = area[s]; return [a.cx + x * a.size, a.cy + y * a.size]; };
+
+/* ---------------------------------------------------------------
+ * Hands: the index fingertip (landmark 8) in the camera image. The image is mirrored to fill the screen,
+ * so the cursor sits right on the fingertip in the background video.
+ * Framing: cover-fit, then zoom in by `zoom`, centred horizontally, with the top of the screen at `top` of the
+ * camera image, i.e. only the upper part of the frame is shown. That keeps the whole hand (wrist included) in
+ * the camera frame while drawing: with the wrist out of frame the palm detector can't see the palm and the
+ * tracking crop goes off-image, which is when index and thumb get mixed up. [ / ] adjust zoom, ↑ / ↓ adjust top.
+ * ------------------------------------------------------------- */
+function videoRect() {
+  const vw = video.videoWidth, vh = video.videoHeight;
+  if (!vw || !vh) return null;
+  const s = Math.max(W / vw, Hh / vh) * cfg.zoom, w = vw * s, h = vh * s;
+  return { x: (W - w) / 2, y: Math.min(0, Math.max(Hh - h, -cfg.top * h)), w, h };
+}
+const tipToScreen = (q, r) => [W - (r.x + q.x * r.w), r.y + q.y * r.h];
+
+// Per hand: `track` does left/right assignment (tips.js), `f` is One Euro smoothing;
+// `low` = the wrist is below the bottom edge of the camera image
+function mkHand(side) {
+  const f = new PointEuro();
+  for (const e of [f.fx, f.fy]) { e.minCutoff = 1.2; e.beta = 0.006; }
+  return { f, track: new TipTrack(side), det: null, p: null, last: null, seen: -1e9, low: false };
+}
+const hands = { L: mkHand("L"), R: mkHand("R") };
+
+// Hand landmarks: MediaPipe HandLandmarker (hands.js), loaded once
+const backend = new MediaPipeHands();
+let backendReady = null, ready = false;
+const loadBackend = () => backendReady ??= backend.init().then(() => { ready = true; }, e => { backendReady = null; throw e; });
+
+// One detection frame → both fingertips (inference may be async; only one frame runs at a time).
+// MediaPipe's handedness isn't used (it assumes a mirrored input and is unstable when hands cross);
+// hands are assigned by position continuity instead, see tips.js
+let busy = false, lastHands = [];
+async function detect(now) {
+  busy = true;
+  let found;
+  try { found = await backend.detect(video, now); }
+  catch (e) { console.error(e); found = []; }
+  finally { busy = false; }
+  lastHands = found;
+  const r = videoRect();
+  const dets = r ? found.map(h => ({
+    lm: h.lm.map(q => tipToScreen(q, r)), norm: h.lm, score: h.score ?? 0, label: h.label, conf: h.conf,
+    low: h.lm[0].y > 0.97,
+  })) : [];
+  const a = assignHands(dets, { L: hands.L.track, R: hands.R.track }, now, W / 2);
+  for (const s of SIDES) {
+    const h = hands[s];
+    h.det = a[s];
+    h.low = !!a[s]?.low;
+    h.f.step(h.track.update(a[s], now), now);
+  }
+}
+
+/* ---------------------------------------------------------------
+ * Rounds. phase: ready (waiting for both pens on the start dots) → draw → result
+ * (to start the next round from the result screen, the pens must leave the start dots and come back).
+ * Start rule: both pens stay inside their start dots for armMs (the ring fills); leaving rewinds the ring.
+ * After the start signal, each hand's stroke begins the moment it leaves its start dot,
+ * so which hand set off first counts toward the sync score.
+ * ------------------------------------------------------------- */
+let game = null;
+function newGame() {
+  const lv = LEVELS[cfg.level];
+  game = {
+    phase: "ready", arm: 0, needRelease: false,
+    strokes: { L: new Stroke(lv.left, lv.mirrorLeft), R: new Stroke(lv.right, lv.mirrorRight) },
+    samples: [], t0: 0, result: null, msg: null, msgT: 0, flashT: -1e9, firstDone: null,
+  };
+}
+
+function inStart(s) {
+  const p = hands[s].p;
+  if (!p) return false;
+  const u = toUnit(s, p), st = game.strokes[s].start;
+  return Math.hypot(u[0] - st[0], u[1] - st[1]) <= TUNE.startR;
+}
+
+function update(now, dt) {
+  const g = game, S = g.strokes;
+  if (g.phase !== "draw") {
+    const both = SIDES.every(inStart);
+    if (g.needRelease) { if (!both) g.needRelease = false; g.arm = 0; }
+    else g.arm = both ? g.arm + dt / GAME.armMs : Math.max(0, g.arm - dt / 250);
+    if (g.arm >= 1) startRound(now);
+    return;
+  }
+  for (const s of SIDES) {
+    const st = S[s], h = hands[s], was = st.state;
+    if (h.p) st.update(toUnit(s, h.p), now);
+    if (st.state === "done" && was !== "done") { sfx.done(s); g.firstDone ??= now; }
+  }
+  g.samples.push({ t: now, a: S.L.progress, b: S.R.progress });
+  const lost = SIDES.find(s => S[s].state !== "done" && now - hands[s].seen > GAME.lostMs);
+  if (lost) return abort(touchMode ? `${HAND[lost]} finger left the screen. Round discarded.` : `${HAND[lost]} hand left the view. Round discarded.`, now);
+  if (SIDES.every(s => S[s].state === "done") || (g.firstDone && now - g.firstDone > GAME.waitOtherMs) || now - g.t0 > GAME.timeoutMs)
+    finish(now);
+}
+
+function startRound(now) {
+  for (const s of SIDES) game.strokes[s].reset();
+  Object.assign(game, { phase: "draw", arm: 0, samples: [], t0: now, result: null, msg: null, flashT: now, firstDone: null });
+  sfx.go();
+}
+
+function abort(msg, now) {
+  for (const s of SIDES) game.strokes[s].reset();
+  Object.assign(game, { phase: "ready", arm: 0, needRelease: false, result: null, msg, msgT: now });
+  sfx.fail();
+}
+
+function finish(now) {
+  const g = game, { L, R } = g.strokes;
+  const l = shapeScore(L), r = shapeScore(R);
+  const tEnd = L.tDone && R.tDone ? Math.max(L.tDone, R.tDone) : now;
+  const sy = syncScore(g.samples, tEnd);
+  const total = totalScore(l.score, r.score, sy.score), key = levelKey(LEVELS[cfg.level]);
+  const prev = cfg.best[key] ?? null, isBest = prev == null || total > prev;
+  if (isBest) { cfg.best[key] = total; saveCfg(); }
+  const lag = L.tDepart != null && R.tDepart != null ? R.tDepart - L.tDepart : null;
+  const tStart = Math.min(L.tDepart ?? Infinity, R.tDepart ?? Infinity);
+  g.result = { l, r, sy, total, rank: rank(total), isBest, prev, lag, tStart, tEnd, samples: g.samples, t: now };
+  g.result.tip = tipFor(g.result);
+  g.phase = "result"; g.needRelease = true; g.arm = 0;
+  sfx.result(total);
+}
+
+// One line on the thing most worth improving
+function tipFor({ l, r, sy, lag }) {
+  const S = game.strokes, name = s => S[s].shape.name;
+  const undone = SIDES.find(s => S[s].state !== "done");
+  if (undone) return `${HAND[undone]} hand didn't finish the ${name(undone)}`;
+  if (lag != null && Math.abs(lag) > 250) return `${lag > 0 ? "Left" : "Right"} hand set off ${(Math.abs(lag) / 1000).toFixed(1)} s early`;
+  if (sy.mean > 0.05) return `${sy.lead > 0 ? "Left" : "Right"} hand was ahead the whole way. Wait for the other one.`;
+  const w = l.score <= r.score ? "L" : "R";
+  if (Math.min(l.score, r.score) < 70) return `${HAND[w]} hand's ${name(w)} could be more accurate`;
+  return "Great coordination!";
+}
+
+// Mouse trial: the mouse is the right hand; the left hand follows the right hand's progress automatically
+function partnerPoint() {
+  const st = game.strokes.L;
+  return toPx("L", game.phase === "draw" ? st.pointAt(game.strokes.R.progress) : st.start);
+}
+
+/* ---------------------------------------------------------------
+ * Sound effects, synthesised with Web Audio
+ * ------------------------------------------------------------- */
+const sfx = {
+  ac: null,
+  init() { this.ac ??= new AudioContext(); this.ac.resume(); },
+  tone(f, at = 0, dur = 0.2, vol = 0.12, type = "triangle") {
+    if (!this.ac) return;
+    const t = this.ac.currentTime + at, o = new OscillatorNode(this.ac, { type, frequency: f }), g = new GainNode(this.ac, { gain: 0 });
+    g.gain.setValueAtTime(1e-4, t); g.gain.exponentialRampToValueAtTime(vol, t + 0.01); g.gain.exponentialRampToValueAtTime(1e-4, t + dur);
+    o.connect(g).connect(this.ac.destination); o.start(t); o.stop(t + dur + 0.02);
+  },
+  go() { this.tone(988, 0, 0.25, 0.16); },
+  done(s) { this.tone(s === "L" ? 659 : 784, 0, 0.3); },
+  fail() { this.tone(196, 0, 0.35, 0.08, "sawtooth"); },
+  result(v) { (v >= 80 ? [523, 659, 784, 1047] : v >= 60 ? [523, 659, 784] : [523, 622]).forEach((f, i) => this.tone(f, i * 0.09, 0.4)); },
+};
+
+/* ---------------------------------------------------------------
+ * Start / quit / keys
+ * ------------------------------------------------------------- */
+loadBackend().then(() => { if (!starting) statusEl.textContent = "Ready"; }, e => statusEl.textContent = "Hand model failed to load: " + e.message);
+
+function updateIntro() {
+  const lv = LEVELS[cfg.level], best = cfg.best[levelKey(lv)];
+  $("info").textContent = `Current: left ${SHAPES[lv.left].name}, right ${SHAPES[lv.right].name}${best != null ? ` · best ${best}` : ""}`;
+}
+updateIntro();
+
+// mode: camera · touch (two fingers on the screen) · mouse (trial)
+async function begin(mode) {
+  mouseMode = mode === "mouse"; touchMode = mode === "touch";
+  sfx.init();
+  // iPhone Safari has no element fullscreen (returns undefined); Android goes fullscreen, then locks landscape
+  try { await Promise.race([document.documentElement.requestFullscreen?.(), new Promise(r => setTimeout(r, 1000))]); } catch {}
+  screen.orientation?.lock?.("landscape").catch(() => {});
+  if (camMode()) {
+    starting = true;
+    statusEl.textContent = "Opening the camera. Please allow camera access…";
+    try { await Promise.all([startCamera(video), loadBackend()]); }
+    catch (e) { statusEl.textContent = "Couldn't start: " + e.message; starting = false; document.exitFullscreen?.().catch(() => {}); return; }
+    starting = false;
+  }
+  statusEl.textContent = "Ready";
+  for (const h of Object.values(hands)) { h.f.reset(); h.track.reset(); h.p = h.last = h.det = null; h.seen = -1e9; h.low = false; }
+  document.body.classList.add("live"); live = true;
+  resize(); newGame();
+}
+$("btnStart").onclick = () => begin("camera");
+$("btnTouch").onclick = () => begin("touch");
+$("btnMouse").onclick = () => begin("mouse");
+
+function quit() { exitLive(); document.exitFullscreen?.().catch(() => {}); }
+function stepLevel(d) { cfg.level = (cfg.level + d + LEVELS.length) % LEVELS.length; saveCfg(); newGame(); }
+// Touch toolbar: previous / next level, restart, quit
+for (const b of document.querySelectorAll("#toolbar button"))
+  b.onclick = () => ({ prev: () => stepLevel(-1), next: () => stepLevel(1), reset: newGame, exit: quit })[b.dataset.act]();
+
+function exitLive() { live = false; document.body.classList.remove("live"); updateIntro(); }
+document.addEventListener("fullscreenchange", () => { if (!document.fullscreenElement && live) exitLive(); });
+
+addEventListener("keydown", e => {
+  if (!live) return;
+  const k = e.key.toLowerCase();
+  if (k === "escape") quit();
+  else if (k === "[" || k === "]") { cfg.zoom = Math.round(Math.max(1, Math.min(1.8, cfg.zoom + (k === "]" ? 0.05 : -0.05))) * 100) / 100; saveCfg(); }
+  else if (k === "arrowup" || k === "arrowdown") { cfg.top = Math.round(Math.max(0, Math.min(0.4, cfg.top + (k === "arrowdown" ? 0.02 : -0.02))) * 100) / 100; saveCfg(); }
+  else if (k === "arrowright" || k === "arrowleft") stepLevel(k === "arrowright" ? 1 : -1);
+  else if (k === "r" || k === " ") newGame();
+  else if (k === "v") { cfg.video = !cfg.video; saveCfg(); }
+  else if (k === "d") debug = !debug;
+  else if (k === "=" || k === "+" || k === "-" || k === "_") {
+    cfg.scale = Math.round(Math.max(0.6, Math.min(1.3, cfg.scale + (k === "-" || k === "_" ? -0.1 : 0.1))) * 10) / 10;
+    saveCfg(); layout();
+  }
+});
+
+let mouse = null;
+canvas.addEventListener("pointermove", e => mouse = [e.clientX, e.clientY]);
+canvas.addEventListener("pointerleave", () => mouse = null);
+
+/* Two-finger touch: each finger is assigned to a hand when it touches down (left half = left hand; if that hand
+ * already has a finger, it goes to the other one) and keeps it until lifted */
+const touches = new Map();   // pointerId → { side, p }
+canvas.addEventListener("pointerdown", e => {
+  if (!touchMode) return;
+  const used = new Set([...touches.values()].map(t => t.side)), pref = e.clientX < W / 2 ? "L" : "R", other = pref === "L" ? "R" : "L";
+  const side = !used.has(pref) ? pref : !used.has(other) ? other : null;
+  if (!side) return;
+  touches.set(e.pointerId, { side, p: [e.clientX, e.clientY] });
+  canvas.setPointerCapture?.(e.pointerId);
+});
+canvas.addEventListener("pointermove", e => {
+  const t = touchMode && touches.get(e.pointerId);
+  if (t) t.p = [e.clientX, e.clientY];
+});
+for (const ev of ["pointerup", "pointercancel"]) canvas.addEventListener(ev, e => touches.delete(e.pointerId));
+// iOS Safari pinch-zoom gesture
+document.addEventListener("gesturestart", e => e.preventDefault());
+
+function resize() {
+  W = innerWidth; Hh = innerHeight; dpr = devicePixelRatio || 1;
+  canvas.width = W * dpr; canvas.height = Hh * dpr;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  layout();
+}
+addEventListener("resize", () => { if (live) resize(); });
+
+/* ---------------------------------------------------------------
+ * Main loop
+ * ------------------------------------------------------------- */
+let lastVideoTime = -1, lastT = performance.now(), lastDetT = 0, fps = 0;
+
+function loop(now) {
+  requestAnimationFrame(loop);
+  const dt = Math.min(100, now - lastT); lastT = now;
+  if (!live) return;
+
+  if (mouseMode) {
+    hands.R.p = mouse;
+    hands.L.p = partnerPoint();
+  } else if (touchMode) {
+    for (const s of SIDES) hands[s].p = [...touches.values()].find(t => t.side === s)?.p ?? null;
+  } else {
+    if (ready && !busy && video.readyState >= 2 && video.currentTime !== lastVideoTime) {
+      lastVideoTime = video.currentTime;
+      detect(now);
+      fps += (1000 / Math.max(1, now - lastDetT) - fps) * 0.05; lastDetT = now;
+    }
+    for (const s of SIDES) hands[s].p = hands[s].f.at();
+  }
+  for (const s of SIDES) if (hands[s].p) { hands[s].seen = now; hands[s].last = hands[s].p; }
+
+  update(now, dt);
+  draw(now);
+}
+requestAnimationFrame(loop);
+
+/* ---------------------------------------------------------------
+ * Drawing
+ * ------------------------------------------------------------- */
+const circle = ([x, y], r) => { ctx.beginPath(); ctx.arc(x, y, Math.max(0, r), 0, TAU); };
+function polyline(pts) { ctx.beginPath(); pts.forEach(([x, y], i) => i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)); }
+function text(s, x, y, size, color, { weight = 600, align = "center", alpha = 1, base = "middle" } = {}) {
+  ctx.globalAlpha = alpha; ctx.fillStyle = color; ctx.font = `${weight} ${size}px ${FONT}`;
+  ctx.textAlign = align; ctx.textBaseline = base; ctx.fillText(s, x, y); ctx.globalAlpha = 1;
+}
+// Wrap at spaces; a word wider than the line (or CJK text without spaces) breaks per character. Returns the line count.
+function wrap(s, x, y, maxW, size, lh, color, alpha = 1) {
+  ctx.font = `600 ${size}px ${FONT}`;
+  const fits = t => ctx.measureText(t).width <= maxW, lines = [];
+  for (const para of s.split("\n")) {
+    let cur = "";
+    for (const word of para.split(" ")) {
+      const next = cur ? cur + " " + word : word;
+      if (fits(next)) { cur = next; continue; }
+      if (cur) lines.push(cur);
+      cur = "";
+      for (const ch of word) { if (cur && !fits(cur + ch)) { lines.push(cur); cur = ""; } cur += ch; }
+    }
+    lines.push(cur);
+  }
+  lines.forEach((l, i) => text(l, x, y + i * lh, size, color, { alpha }));
+  return lines.length;
+}
+
+function draw(now) {
+  ctx.fillStyle = BG; ctx.fillRect(0, 0, W, Hh);
+  const r = camMode() && cfg.video && video.readyState >= 2 && videoRect();
+  if (r) {
+    ctx.save(); ctx.globalAlpha = 0.3; ctx.translate(W, 0); ctx.scale(-1, 1);
+    ctx.drawImage(video, r.x, r.y, r.w, r.h); ctx.restore();
+  }
+  for (const s of SIDES) drawSide(s, now);
+  drawCenter(now);
+  text(`Level ${cfg.level + 1} / ${LEVELS.length}${coarse ? "" : "   ← → to change"}`, W / 2, 30, 13, DIM, { weight: 500 });
+  for (const s of SIDES) drawCursor(s, now);
+  // Two hints along the bottom; when they don't fit on one line, the right one moves up a line
+  const keysTip = `Esc quit · R restart · +/− size · V view${mouseMode ? " · Mouse trial: the mouse is your right hand, the left follows" : touchMode ? " · Two-finger touch" : " · [ ] ↑ ↓ framing · D debug"}`;
+  if (!coarse) text(keysTip, 18, Hh - 18, 13, DIM, { weight: 500, align: "left", base: "alphabetic", alpha: 0.8 });
+  if (debug) drawDebug();
+}
+
+function drawSide(s, now) {
+  const g = game, st = g.strokes[s], col = COLOR[s], a = area[s];
+  ctx.save(); ctx.lineCap = ctx.lineJoin = "round";
+  ctx.strokeStyle = ctx.fillStyle = col;
+
+  // Guide (dotted)
+  ctx.globalAlpha = 0.5; ctx.lineWidth = 3; ctx.setLineDash([1, 9]);
+  polyline(st.paths[0].pts.map(p => toPx(s, p))); ctx.stroke(); ctx.setLineDash([]);
+  if (!st.shape.closed) { ctx.globalAlpha = 0.7; ctx.lineWidth = 2.5; circle(toPx(s, st.end), TUNE.startR * a.size * 0.6); ctx.stroke(); }
+
+  // Ink
+  if (st.trace.length > 1) {
+    ctx.globalAlpha = 0.95; ctx.lineWidth = 7;
+    polyline(st.trace.map(p => toPx(s, p))); ctx.stroke();
+  }
+
+  // Start dot
+  const c = toPx(s, st.start), r0 = TUNE.startR * a.size;
+  if (g.phase !== "draw") {
+    const inside = inStart(s);
+    ctx.globalAlpha = inside ? 0.45 : 0.2 + 0.1 * Math.sin(now / 250); circle(c, r0); ctx.fill();
+    ctx.globalAlpha = 0.9; ctx.lineWidth = 2; circle(c, r0); ctx.stroke();
+    if (g.arm > 0) { ctx.lineWidth = 6; ctx.beginPath(); ctx.arc(c[0], c[1], r0 + 8, -Math.PI / 2, -Math.PI / 2 + g.arm * TAU); ctx.stroke(); }
+  } else if (st.state === "wait") {
+    ctx.globalAlpha = 0.6; circle(c, r0 * 0.5); ctx.fill();
+  }
+
+  // The other hand's progress projected onto this shape: shows whether you're ahead or behind
+  if (g.phase === "draw" && st.locked && st.state !== "done") {
+    const o = s === "L" ? "R" : "L", k = g.strokes[o].progress;
+    if (k > 0) { ctx.globalAlpha = 0.95; ctx.strokeStyle = COLOR[o]; ctx.lineWidth = 3; circle(toPx(s, st.pointAt(k)), 10); ctx.stroke(); }
+  }
+  ctx.restore();
+
+  // Label above the shape; on the result screen, this hand's shape score
+  const y = a.cy - a.size * 1.12 - 26, res = g.result && (s === "L" ? g.result.l : g.result.r);
+  if (g.phase === "result" && res) {
+    text(`${cap(st.shape.name)}  ${res.score}`, a.cx, y - 8, 30, col, { weight: 700 });
+    text(`fit ${Math.round(res.fit * 100)} · complete ${Math.round(res.coverage * 100)}%`, a.cx, y + 22, 13, INK, { weight: 500, alpha: 0.7 });
+  } else text(`${HAND[s]} · ${cap(st.shape.name)}`, a.cx, y, 20, col, { weight: 700 });
+}
+
+function drawCursor(s, now) {
+  const h = hands[s], p = h.p ?? (now - h.seen < 1500 ? h.last : null);
+  if (!p) return;
+  ctx.globalAlpha = h.p ? 1 : 0.35;
+  ctx.strokeStyle = COLOR[s]; ctx.lineWidth = 3; circle(p, 12); ctx.stroke();
+  ctx.fillStyle = INK; circle(p, 3.5); ctx.fill();
+  ctx.globalAlpha = 1;
+  // Wrist below the camera image: that's when the thumb gets mistaken for the index finger
+  if (h.p && h.low) text("Raise your hand", p[0], p[1] + 34, 14, "#ffd166", { weight: 700 });
+}
+
+function drawCenter(now) {
+  const g = game, x = W / 2, cy = area.L.cy, size = area.L.size;
+  const colW = Math.max(160, Math.min(280, area.R.cx - area.L.cx - 2 * size * 1.05 - 30));
+
+  if (g.phase === "ready") {
+    if (g.msg && now - g.msgT < 2500) { wrap(g.msg, x, cy - 20, colW, 17, 26, "#ffb36b"); return; }
+    const fs = colW < 220 ? 15 : 17, lh = fs + 10;   // narrow middle column on landscape phones: one size smaller
+    if (camMode() && SIDES.every(s => now - hands[s].seen > 1000)) { wrap("No hands in view\nRaise both hands", x, cy - 14, colW, fs, lh, INK, 0.7); return; }
+    wrap(touchMode ? "Hold both start dots\nuntil the ring fills" : "Index fingers up\nHold them on the start dots\nuntil the ring fills", x, cy - lh, colW, fs, lh, INK, 0.8);
+    return;
+  }
+
+  if (g.phase === "draw") {
+    const k = (now - g.flashT) / 600;
+    if (k < 1) text("Go!", x, cy - size * 0.75, 44, INK, { weight: 800, alpha: 1 - k });
+    // Two vertical bars: each hand's progress, so you can see at a glance who's ahead
+    const S = g.strokes, bh = size * 1.6, bw = 16, top = cy - bh / 2 + size * 0.15;
+    SIDES.forEach((s, i) => {
+      const bx = x + (i ? 6 : -6 - bw), k2 = S[s].progress;
+      ctx.fillStyle = COLOR[s]; ctx.globalAlpha = 0.18; ctx.fillRect(bx, top, bw, bh);
+      ctx.globalAlpha = 0.95; ctx.fillRect(bx, top + bh * (1 - k2), bw, bh * k2);
+    });
+    ctx.globalAlpha = 1;
+    const d = Math.abs(S.L.progress - S.R.progress);
+    text(`${((now - g.t0) / 1000).toFixed(1)} s`, x, top - 22, 15, INK, { weight: 600, alpha: 0.8 });
+    text(d < 0.04 ? "In sync" : d < 0.1 ? "Slightly off" : S.L.progress > S.R.progress ? "Left ahead" : "Right ahead",
+      x, top + bh + 24, 15, d < 0.04 ? "#5be3a4" : d < 0.1 ? "#ffd166" : "#ff7b7b", { weight: 700 });
+    return;
+  }
+
+  // Result
+  const R = g.result, w = colW, h = 330, x0 = x - w / 2, y0 = cy - h / 2;
+  const fade = Math.max(0.25, 1 - g.arm), k = Math.min(1, (Hh - 50) / h);   // shrink to fit short landscape phones
+  ctx.save(); ctx.translate(x, cy); ctx.scale(k, k); ctx.translate(-x, -cy);
+  ctx.globalAlpha = 0.72 * fade; ctx.fillStyle = "#0b0d1c";
+  ctx.beginPath(); ctx.roundRect(x0 - 12, y0, w + 24, h, 18); ctx.fill(); ctx.globalAlpha = fade;
+  text("TOTAL", x, y0 + 26, 12, DIM);
+  text(`${R.total}`, x - 16, y0 + 72, 60, INK, { weight: 800 });
+  text(R.rank, x + 52, y0 + 80, 26, R.rank === "S" ? "#ffd166" : INK, { weight: 800, alpha: 0.8 });
+  const dur = isFinite(R.tStart) ? `  ·  ${((R.tEnd - R.tStart) / 1000).toFixed(1)} s` : "";
+  text(`Sync ${R.sy.score}${dur}`, x, y0 + 116, 15, INK, { weight: 600 });
+  drawChart(x0, y0 + 134, w, 84, R);
+  const n = wrap(R.tip, x, y0 + 242, w, 15, 22, "#ffd166");
+  text(R.isBest ? (R.prev == null ? "First record" : `New best! Previous ${R.prev}`) : `Best ${R.prev}`, x, y0 + 250 + n * 22, 13, DIM);
+  text(touchMode ? "Touch the start dots to play again" : "Back to the start dots to play again", x, y0 + h - 22, 13, DIM);
+  ctx.restore();
+}
+
+// Both hands' progress over time: the closer the two lines, the better the sync
+function drawChart(x, y, w, h, R) {
+  ctx.save();
+  ctx.globalAlpha *= 0.08; ctx.fillStyle = INK; ctx.fillRect(x, y, w, h); ctx.restore();
+  if (!isFinite(R.tStart)) return;
+  const T = Math.max(1, R.tEnd - R.tStart), pts = R.samples.filter(p => p.t >= R.tStart - 50 && p.t <= R.tEnd + 50);
+  ctx.save(); ctx.lineWidth = 2.5; ctx.lineJoin = "round";
+  for (const [s, key] of [["L", "a"], ["R", "b"]]) {
+    ctx.strokeStyle = COLOR[s];
+    polyline(pts.map(p => [x + Math.max(0, Math.min(1, (p.t - R.tStart) / T)) * w, y + h - p[key] * h])); ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function drawDebug() {
+  const S = game.strokes, f2 = v => v == null ? "–" : v.toFixed(2);
+  const L = [`fps ${fps.toFixed(0)}  hands ${lastHands.length}  phase ${game.phase}  arm ${game.arm.toFixed(2)}  scale ${cfg.scale}  zoom ${cfg.zoom} top ${cfg.top}`];
+  if (camMode()) L.push(`MediaPipe  ${backend.timing.total?.toFixed(1) ?? "–"} ms/frame`);
+  for (const s of SIDES) {
+    const st = S[s], tr = hands[s].track, n = tr.stats;
+    L.push(`${s} ${st.key}  ${st.state}  dir ${st.dir}${st.locked ? "" : "?"}  prog ${f2(st.progress)}  off ${f2(st.offPath)}  pts ${st.trace.length}`);
+    if (TIP.checks) L.push(`  tip ${tr.last?.kind ?? "–"}  ok ${n.ok}  swap ${n.swap}  collapse ${n.collapse}  reject ${n.reject}  relock ${n.relock}  init ${n.init}`);
+    if (hands[s].low) L.push("  wrist below the camera image");
+    // On screen: red = raw landmark 8, yellow = raw landmark 4, green ring = the point taken
+    const d = hands[s].det;
+    if (d) {
+      ctx.fillStyle = "#f33"; ctx.fillRect(d.lm[8][0] - 3, d.lm[8][1] - 3, 6, 6);
+      ctx.fillStyle = "#fd3"; ctx.fillRect(d.lm[4][0] - 3, d.lm[4][1] - 3, 6, 6);
+      if (tr.last?.used) { ctx.strokeStyle = "#3f6"; ctx.lineWidth = 1.5; circle(tr.last.used, 7); ctx.stroke(); }
+    }
+  }
+  if (camMode()) {
+    const vw = 240, vh = vw * video.videoHeight / video.videoWidth, x0 = W - vw - 16, y0 = 16;
+    if (vh) {
+      ctx.save(); ctx.globalAlpha = 0.85; ctx.translate(x0 + vw, y0); ctx.scale(-1, 1);
+      ctx.drawImage(video, 0, 0, vw, vh);
+      for (const { lm } of lastHands) lm.forEach((q, i) => {
+        const z = i === 8 || i === 4 ? 6 : 3; ctx.fillStyle = i === 8 ? "#f33" : i === 4 ? "#fd3" : "#0f0";
+        ctx.fillRect(q.x * vw - z / 2, q.y * vh - z / 2, z, z);
+      });
+      const r = videoRect();   // the part of the camera image shown on screen
+      if (r) { ctx.strokeStyle = "#fff"; ctx.lineWidth = 1; ctx.strokeRect(-r.x / r.w * vw, -r.y / r.h * vh, W / r.w * vw, Hh / r.h * vh); }
+      ctx.restore();
+    }
+  }
+  ctx.fillStyle = "#0f0"; ctx.font = "12px ui-monospace, Menlo, monospace"; ctx.textAlign = "left"; ctx.textBaseline = "alphabetic";
+  L.forEach((s, i) => ctx.fillText(s, 16, 52 + i * 16));
+}
+</script>
+</body>
+</html>
